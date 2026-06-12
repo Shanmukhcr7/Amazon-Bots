@@ -1,70 +1,142 @@
+import os
 import random
-import uuid
+import re
 from datetime import datetime
+import requests
+from bs4 import BeautifulSoup
+
 from app.core.database import SessionLocal
 from app.models.product import Product, PriceHistory
 from app.models.deal import Deal
 from app.services.analyzer import analyze_deal_with_ai
+from app.core.config import settings
 
-MOCK_PRODUCTS = [
-    {"source_id": "B08N5WRWNW", "name": "Apple MacBook Air M1", "brand": "Apple", "category": "Laptops", "url": "https://amazon.com/dp/B08N5WRWNW", "image_url": "https://m.media-amazon.com/images/I/71jG+e7roXL._AC_SL1500_.jpg", "base_price": 999.0},
-    {"source_id": "B09G9FPHY6", "name": "Sony WH-1000XM5 Headphones", "brand": "Sony", "category": "Electronics", "url": "https://amazon.com/dp/B09G9FPHY6", "image_url": "https://m.media-amazon.com/images/I/51aXvjzcukL._AC_SL1000_.jpg", "base_price": 398.0},
+# Diverse search keywords to rotate through for finding deals across Amazon
+KEYWORDS = [
+    "tech deals", "laptop deals", "smart home deals", 
+    "kitchen appliance deals", "discount electronics", 
+    "gaming accessory deals", "headphones on sale",
+    "fitness equipment deals", "mens fashion sale",
+    "womens fashion sale", "home decor deals"
 ]
+
+def clean_price(price_str: str) -> float:
+    try:
+        # Remove anything that isn't a digit or a period
+        clean_str = re.sub(r'[^\d.]', '', price_str)
+        return float(clean_str) if clean_str else 0.0
+    except Exception:
+        return 0.0
 
 def scrape_amazon_dummy():
     """
-    A dummy scraper task that simulates fetching products from Amazon,
-    updating price history, and triggering deal analysis.
+    Real Amazon Scraper powered by ScraperAPI
     """
+    if not settings.SCRAPER_API_KEY:
+        print("Missing SCRAPER_API_KEY. Skipping scrape task.")
+        return
+
+    # Pick a random keyword to monitor a different category each time
+    keyword = random.choice(KEYWORDS).replace(" ", "+")
+    amazon_url = f"https://www.amazon.com/s?k={keyword}"
+    
+    payload = {
+        'api_key': settings.SCRAPER_API_KEY,
+        'url': amazon_url,
+        'render': 'true' # Ensures Amazon's JS renders the prices properly
+    }
+    
+    print(f"Scraping category: {keyword}")
+    try:
+        response = requests.get('http://api.scraperapi.com', params=payload, timeout=60)
+        response.raise_for_status()
+    except Exception as e:
+        print(f"ScraperAPI request failed: {e}")
+        return
+
+    soup = BeautifulSoup(response.text, "html.parser")
+    items = soup.find_all("div", {"data-component-type": "s-search-result"})
+    
     db = SessionLocal()
     try:
-        for mock_item in MOCK_PRODUCTS:
-            product = db.query(Product).filter(Product.source_id == mock_item["source_id"], Product.source == "amazon").first()
+        for item in items[:10]: # Process up to 10 products per run to manage AI rate limits
+            asin = item.get("data-asin")
+            if not asin:
+                continue
+                
+            title_elem = item.find("h2")
+            title = title_elem.text.strip() if title_elem else "Unknown Product"
+            url = f"https://www.amazon.com/dp/{asin}"
             
+            image_elem = item.find("img", {"class": "s-image"})
+            image_url = image_elem.get("src") if image_elem else ""
+
+            # Extract Current Price
+            price_elem = item.find("span", {"class": "a-price"})
+            if not price_elem:
+                continue
+            
+            current_price_str = price_elem.find("span", {"class": "a-offscreen"})
+            current_price_str = current_price_str.text if current_price_str else ""
+            current_price = clean_price(current_price_str)
+            
+            if current_price == 0.0:
+                continue
+
+            # Extract Original Price (List Price)
+            original_price = current_price
+            strike_elem = item.find("span", {"class": "a-text-price"})
+            if strike_elem:
+                offscreen_strike = strike_elem.find("span", {"class": "a-offscreen"})
+                if offscreen_strike:
+                    original_price = clean_price(offscreen_strike.text)
+
+            # Only process if there is a detected discount
+            if original_price <= current_price:
+                continue
+                
+            discount_percentage = ((original_price - current_price) / original_price) * 100
+
+            # 1. Update or Create Product
+            product = db.query(Product).filter(Product.source_id == asin, Product.source == "amazon").first()
             if not product:
                 product = Product(
                     source="amazon",
-                    source_id=mock_item["source_id"],
-                    name=mock_item["name"],
-                    brand=mock_item["brand"],
-                    category=mock_item["category"],
-                    url=mock_item["url"],
-                    image_url=mock_item["image_url"]
+                    source_id=asin,
+                    name=title,
+                    brand="Amazon Search",
+                    category=keyword.replace("+", " ").title(),
+                    url=url,
+                    image_url=image_url
                 )
                 db.add(product)
                 db.commit()
                 db.refresh(product)
                 
-            # Simulate a current price (maybe a random discount between 0% and 40%)
-            discount_percentage = random.uniform(0, 40)
-            current_price = round(mock_item["base_price"] * (1 - discount_percentage / 100), 2)
-            
-            # Record price history
+            # 2. Record Price History
             history = PriceHistory(
                 product_id=product.id,
                 price=current_price,
-                original_price=mock_item["base_price"],
+                original_price=original_price,
                 discount_percentage=discount_percentage,
                 availability=True
             )
             db.add(history)
             db.commit()
             
-            # Deal Detection Logic
-            # If discount is greater than 20%, consider it a potential deal and analyze
-            if discount_percentage > 20.0:
-                # Calculate simple deal score based on discount
+            # 3. AI Deal Detection & Telegram Alert
+            if discount_percentage > 15.0: # Only analyze if discount is > 15%
                 deal_score = min(100.0, discount_percentage * 2.5) 
                 
-                # Check if a pending/approved deal already exists recently to avoid spam
+                # Check if we already alerted about this product recently (24 hours)
                 recent_deal = db.query(Deal).filter(Deal.product_id == product.id).order_by(Deal.detected_at.desc()).first()
                 if not recent_deal or (datetime.utcnow() - recent_deal.detected_at).total_seconds() > 86400:
-                    # AI Analysis
+                    
                     analysis = analyze_deal_with_ai(
                         product_name=product.name,
                         product_desc=f"{product.brand} {product.category}",
                         current_price=current_price,
-                        original_price=mock_item["base_price"],
+                        original_price=original_price,
                         discount=round(discount_percentage, 2)
                     )
                     
@@ -87,7 +159,7 @@ def scrape_amazon_dummy():
                     db.commit()
                     db.refresh(deal)
                     
-                    # Send telegram alert automatically!
+                    # Auto-publish to Telegram
                     if is_genuine:
                         from app.services.notifier import send_telegram_alert
                         send_telegram_alert(deal)

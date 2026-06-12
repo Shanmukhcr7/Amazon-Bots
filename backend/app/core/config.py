@@ -19,6 +19,9 @@ class Settings(BaseSettings):
     # Telegram
     TELEGRAM_BOT_TOKEN: str = ""
     TELEGRAM_CHAT_ID: str = ""
+    
+    # Scraper API
+    SCRAPER_API_KEY: str = ""
 
     class Config:
         env_file = ".env"
