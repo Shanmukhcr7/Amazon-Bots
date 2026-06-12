@@ -103,7 +103,13 @@ def scrape_amazon_dummy():
 
             # 1. Update or Create Product
             product = db.query(Product).filter(Product.source_id == asin, Product.source == "amazon").first()
-            if not product:
+            
+            is_price_drop = True
+            if product:
+                last_history = db.query(PriceHistory).filter(PriceHistory.product_id == product.id).order_by(PriceHistory.recorded_at.desc()).first()
+                if last_history and current_price >= last_history.price:
+                    is_price_drop = False
+            else:
                 product = Product(
                     source="amazon",
                     source_id=asin,
@@ -129,7 +135,7 @@ def scrape_amazon_dummy():
             db.commit()
             
             # 3. AI Deal Detection & Telegram Alert
-            if discount_percentage > 15.0: # Only analyze if discount is > 15%
+            if discount_percentage > 15.0 and is_price_drop: # Only analyze if it's a discount AND the price actually dropped
                 deal_score = min(100.0, discount_percentage * 2.5) 
                 
                 # Check if we already alerted about this product recently (24 hours)
