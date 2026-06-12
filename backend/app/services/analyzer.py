@@ -12,14 +12,14 @@ def analyze_deal_with_ai(product_name: str, product_desc: str, current_price: fl
     Uses NVIDIA's Llama 3.3 70B Instruct model to analyze a deal and return a structured summary.
     """
     prompt = f"""
-    Analyze the following product deal:
+    Analyze the following product deal from Amazon India:
     Product Name: {product_name}
     Description: {product_desc}
-    Current Price: ${current_price}
-    Original Price: ${original_price}
+    Current Price: ₹{current_price} INR
+    Original Price: ₹{original_price} INR
     Discount: {discount}%
 
-    Is this likely a genuine deal? 
+    Is this likely a genuine and good deal for a consumer in India? 
     Please return ONLY a JSON object with the following keys:
     - "is_genuine" (boolean)
     - "summary" (string: a short explanation of the deal and whether it's worth it)
