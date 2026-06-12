@@ -22,7 +22,7 @@ KEYWORDS = [
 
 def clean_price(price_str: str) -> float:
     try:
-        # Remove anything that isn't a digit or a period
+        # Remove anything that isn't a digit or a period (handles ₹, $, commas)
         clean_str = re.sub(r'[^\d.]', '', price_str)
         return float(clean_str) if clean_str else 0.0
     except Exception:
@@ -38,12 +38,15 @@ def scrape_amazon_dummy():
 
     # Pick a random keyword to monitor a different category each time
     keyword = random.choice(KEYWORDS).replace(" ", "+")
-    amazon_url = f"https://www.amazon.com/s?k={keyword}"
+    
+    # Switch to Amazon India to solve shipping/availability issues!
+    amazon_url = f"https://www.amazon.in/s?k={keyword}"
     
     payload = {
         'api_key': settings.SCRAPER_API_KEY,
         'url': amazon_url,
-        'render': 'true' # Ensures Amazon's JS renders the prices properly
+        'render': 'true', # Ensures Amazon's JS renders the prices properly
+        'country_code': 'in' # Forces ScraperAPI to use an Indian IP so products are available
     }
     
     print(f"Scraping category: {keyword}")
@@ -59,14 +62,15 @@ def scrape_amazon_dummy():
     
     db = SessionLocal()
     try:
-        for item in items[:10]: # Process up to 10 products per run to manage AI rate limits
+        for item in items[:15]: # Process up to 15 products
             asin = item.get("data-asin")
-            if not asin:
+            # Strictly validate the ASIN so links are never broken
+            if not asin or len(asin) != 10:
                 continue
                 
             title_elem = item.find("h2")
             title = title_elem.text.strip() if title_elem else "Unknown Product"
-            url = f"https://www.amazon.com/dp/{asin}"
+            url = f"https://www.amazon.in/dp/{asin}"
             
             image_elem = item.find("img", {"class": "s-image"})
             image_url = image_elem.get("src") if image_elem else ""
