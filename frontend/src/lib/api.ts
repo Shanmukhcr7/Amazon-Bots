@@ -1,6 +1,6 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
 
-export async function fetchDeals(status?: str) {
+export async function fetchDeals(status?: string) {
   const url = new URL(`${API_URL}/deals`);
   if (status) {
     url.searchParams.append('status', status);
