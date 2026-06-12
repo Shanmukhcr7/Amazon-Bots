@@ -20,6 +20,8 @@ def analyze_deal_with_ai(product_name: str, product_desc: str, current_price: fl
     Discount: {discount}%
 
     Is this likely a genuine and good deal for a consumer in India? 
+    CRITICAL WARNING: Amazon sellers frequently inflate the 'Original Price' (MSRP) to make a normal price look like a massive discount. If you suspect this is a 'fake discount' and the current price is actually the normal everyday price (or even a price hike), you MUST mark "is_genuine": false.
+    
     Please return ONLY a JSON object with the following keys:
     - "is_genuine" (boolean)
     - "summary" (string: a short explanation of the deal and whether it's worth it)

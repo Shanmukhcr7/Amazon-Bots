@@ -14,7 +14,7 @@ def send_telegram_alert(deal) -> bool:
     # Calculate discount
     if product.price_history:
         latest_price = product.price_history[-1]
-        price_text = f"Current Price: ${latest_price.price} (Original: ${latest_price.original_price})"
+        price_text = f"Current Price: ₹{latest_price.price} (Original: ₹{latest_price.original_price})"
     else:
         price_text = "Price info missing"
         
