@@ -1,4 +1,8 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
+let API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api';
+API_URL = API_URL.replace(/\/$/, '');
+if (!API_URL.endsWith('/api')) {
+  API_URL += '/api';
+}
 
 export async function fetchDeals(status?: string) {
   const url = new URL(`${API_URL}/deals`);
